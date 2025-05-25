@@ -20,16 +20,18 @@ app.use(express.json());
 app.use("/api/v1/user", require("./routes/user.route"));
 app.use("/api/v1/forgot-password", require("./routes/forgot.password.route"));
 
+app.use("/api/v1/folder", require("./routes/folder.route"));
+
 app.get("/", (req, res) => {
   res.status(200).send("Storage Management System is working");
 });
 
-// // wrong route handler
-// app.use("/", (req, res) => {
-//   res.status(404).json({
-//     success: false,
-//     message: "Route not found",
-//   });
-// });
+// wrong route handler
+app.use("/", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Route not found",
+  });
+});
 
 module.exports = app;
