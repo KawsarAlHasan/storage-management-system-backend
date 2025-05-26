@@ -51,7 +51,6 @@ exports.uploadFile = async (req, res) => {
       path: pathUrl,
       user: userId,
       folder: req.body.folderId || null,
-      lockPassword: req.body.lockPassword || null,
       isLock: req.body.isLock || false,
     });
 
@@ -89,7 +88,7 @@ exports.getAllFiles = async (req, res) => {
     const userId = req.decodedUser._id;
     const { folderId, type, name } = req.query;
 
-    const query = { user: userId };
+    const query = { user: userId, isLock: false };
     if (folderId) query.folder = folderId;
     if (type) query.type = type;
     if (name) query.name = name;
@@ -117,6 +116,7 @@ exports.getAllFiles = async (req, res) => {
   }
 };
 
+// get file by date
 exports.getFilesByDate = async (req, res) => {
   try {
     const userId = req.decodedUser._id;
@@ -145,6 +145,7 @@ exports.getFilesByDate = async (req, res) => {
 
     const files = await File.find({
       user: userId,
+      isLock: false,
       createdAt: {
         $gte: startDate,
         $lte: endDate,
@@ -177,28 +178,16 @@ exports.getFilesByDate = async (req, res) => {
 exports.getFileById = async (req, res) => {
   try {
     const { id } = req.params;
-    const file = await File.findById(id).populate("folder");
-    const lockPassword = req.query.lockPassword;
+
+    const file = await File.findOne({
+      _id: id,
+      isLock: false,
+    }).populate("folder");
 
     if (!file) {
       return res.status(404).json({
         success: false,
         error: "File not found",
-      });
-    }
-
-    if (file.isLock === true && !lockPassword) {
-      return res.status(403).json({
-        success: false,
-        error:
-          "File is locked. Please provide the lockPassword query parameter.",
-      });
-    }
-
-    if (file.lockPassword !== lockPassword) {
-      return res.status(403).json({
-        success: false,
-        error: "Invalid lockPassword",
       });
     }
 
@@ -288,6 +277,136 @@ exports.updateFile = async (req, res) => {
       success: true,
       message: "File updated successfully",
       data: updatedFile,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// toggle File Lock
+exports.toggleFileLock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isLock } = req.body;
+    const userId = req.decodedUser._id;
+
+    const file = await File.findById(id);
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        error: "File not found",
+      });
+    }
+
+    if (!file.user.equals(userId)) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to modify this file",
+      });
+    }
+
+    const updatedFile = await File.findByIdAndUpdate(
+      id,
+      {
+        isLock,
+      },
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `File ${isLock ? "locked" : "unlocked"} successfully`,
+      data: updatedFile,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// Duplicate a file
+exports.duplicateFile = async (req, res) => {
+  try {
+    const userId = req.decodedUser._id;
+    const { id } = req.params;
+    const { folderId, isLock } = req.body;
+
+    const originalFile = await File.findById(id);
+
+    if (!originalFile) {
+      return res.status(404).json({
+        success: false,
+        error: "File not found",
+      });
+    }
+
+    if (!originalFile.user.equals(userId)) {
+      return res.status(403).json({
+        success: false,
+        error: "You are not authorized to duplicate this file",
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (user.storageUsed + originalFile.size > user.storageLimit) {
+      return res.status(400).json({
+        success: false,
+        error: "Storage limit exceeded. Cannot duplicate file.",
+      });
+    }
+
+    const originalFilename = originalFile.path.split("/").pop();
+    const originalPath = path.join(
+      __dirname,
+      "../../public/files",
+      originalFilename
+    );
+    const fileExt = path.extname(originalFilename);
+    const fileName = path.basename(originalFilename, fileExt);
+    const newFilename = `${fileName}-copy-${Date.now()}${fileExt}`;
+    const newPath = path.join(__dirname, "../../public/files", newFilename);
+
+    fs.copyFileSync(originalPath, newPath);
+
+    const pathUrl = `${req.protocol}://${req.get(
+      "host"
+    )}/public/files/${newFilename}`;
+
+    const duplicatedFile = new File({
+      name: `${originalFile.name} (Copy)`,
+      type: originalFile.type,
+      size: originalFile.size,
+      path: pathUrl,
+      user: userId,
+      folder: folderId || originalFile.folder,
+      isLock: isLock || false,
+    });
+
+    const savedFile = await duplicatedFile.save();
+
+    await User.findByIdAndUpdate(
+      userId,
+      {
+        $inc: {
+          storageUsed: originalFile.size,
+          storageAvailable: -originalFile.size,
+        },
+      },
+      { new: true }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "File duplicated successfully",
+      data: savedFile,
     });
   } catch (error) {
     res.status(500).json({

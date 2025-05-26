@@ -3,9 +3,7 @@ require("dotenv").config();
 
 // Hostinger SMTP credentials
 let transporter = nodemailer.createTransport({
-  host: "smtp.hostinger.com",
-  port: 465,
-  secure: true,
+  service: "gmail",
   auth: {
     user: process.env.EMAIL_ADD,
     pass: process.env.EMAIL_PASS,

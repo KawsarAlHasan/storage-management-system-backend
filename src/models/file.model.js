@@ -12,10 +12,7 @@ const fileSchema = new mongoose.Schema(
       ref: "Folder",
       default: null,
     },
-    lockPassword: { type: String },
     isLock: { type: Boolean, default: false },
-    failedAttempts: { type: Number, default: 0 },
-    lockedAt: Date,
   },
   { timestamps: true }
 );

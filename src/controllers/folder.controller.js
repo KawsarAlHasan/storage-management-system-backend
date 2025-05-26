@@ -86,7 +86,7 @@ exports.getFolderById = async (req, res) => {
       });
     }
 
-    const files = await File.find({ folder: id })
+    const files = await File.find({ folder: id, isLock: false })
       .sort({ createdAt: -1 })
       .lean();
 

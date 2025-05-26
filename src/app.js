@@ -24,8 +24,13 @@ app.use("/public", express.static(path.join(__dirname, "../public")));
 app.use("/api/v1/user", require("./routes/user.route"));
 app.use("/api/v1/forgot-password", require("./routes/forgot.password.route"));
 
+app.use("/api/v1/locked-folder", require("./routes/locked.folder.route"));
+
 app.use("/api/v1/folder", require("./routes/folder.route"));
 app.use("/api/v1/file", require("./routes/file.route"));
+app.use("/api/v1/favorites", require("./routes/favorites.route"));
+
+app.use("/api/v1/settings", require("./routes/settings.route"));
 
 app.get("/", (req, res) => {
   res.status(200).send("Storage Management System is working");
