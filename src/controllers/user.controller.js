@@ -1,6 +1,9 @@
 const bcrypt = require("bcryptjs");
 const { generateToken } = require("../config/user.token");
 const User = require("../models/user.model");
+const File = require("../models/file.model");
+const Folder = require("../models/folder.model");
+const mongoose = require("mongoose");
 
 // sign up
 exports.signupUser = async (req, res, next) => {
@@ -136,17 +139,34 @@ exports.getMyProfile = async (req, res, next) => {
 // update profile
 exports.updateProfile = async (req, res, next) => {
   try {
-    const user = req?.decodedUser;
-    const { name, profilePicture } = req.body;
+    const user = req.decodedUser;
+    const name = req.body.name ? req.body.name : user.name;
+    const file = req.file;
 
-    const updatedUser = await User.findByIdAndUpdate(
-      user._id,
-      {
-        ...(name && { name }),
-        ...(profilePicture && { profilePicture }),
-      },
-      { new: true }
-    );
+    let profilePicture = user.profilePicture;
+
+    if (file && file.path) {
+      if (user.profilePicture) {
+        const oldFilename = user.profilePicture.split("/").pop();
+        const oldPath = path.join(__dirname, "../../public/files", oldFilename);
+
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+        }
+      }
+
+      profilePicture = `${req.protocol}://${req.get("host")}/public/files/${
+        file.filename
+      }`;
+    }
+
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (profilePicture) updateData.profilePicture = profilePicture;
+
+    const updatedUser = await User.findByIdAndUpdate(user._id, updateData, {
+      new: true,
+    });
 
     res.status(200).json({
       success: true,
@@ -161,7 +181,6 @@ exports.updateProfile = async (req, res, next) => {
     });
   }
 };
-
 // change password
 exports.changePassword = async (req, res, next) => {
   try {
@@ -233,6 +252,168 @@ exports.deleteUserAccount = async (req, res) => {
     res.status(500).send({
       success: false,
       message: "Error in Delete User",
+      error: error.message,
+    });
+  }
+};
+
+// user dashboard
+exports.getMyDashboard = async (req, res, next) => {
+  try {
+    const userId = req.decodedUser._id;
+
+    // Use mongoose.Types.ObjectId() with 'new' keyword
+    const userIdObj = new mongoose.Types.ObjectId(userId);
+
+    const [folders, noteFiles, imageFiles, pdfFiles, videoFiles, recentItems] =
+      await Promise.all([
+        Folder.aggregate([
+          { $match: { user: userIdObj } },
+          {
+            $lookup: {
+              from: "files",
+              localField: "_id",
+              foreignField: "folder",
+              as: "files",
+            },
+          },
+          {
+            $project: {
+              name: 1,
+              fileCount: { $size: "$files" },
+              totalSize: { $sum: "$files.size" },
+              createdAt: 1,
+            },
+          },
+        ]),
+
+        File.aggregate([
+          {
+            $match: {
+              user: userIdObj,
+              type: "note",
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              totalSize: { $sum: "$size" },
+            },
+          },
+        ]),
+
+        File.aggregate([
+          {
+            $match: {
+              user: userIdObj,
+              type: "image",
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              totalSize: { $sum: "$size" },
+            },
+          },
+        ]),
+
+        File.aggregate([
+          {
+            $match: {
+              user: userIdObj,
+              type: "pdf",
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              totalSize: { $sum: "$size" },
+            },
+          },
+        ]),
+
+        File.aggregate([
+          {
+            $match: {
+              user: userIdObj,
+              type: "video",
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              count: { $sum: 1 },
+              totalSize: { $sum: "$size" },
+            },
+          },
+        ]),
+
+        Promise.all([
+          File.find({ user: userId })
+            .sort({ createdAt: -1 })
+            .limit(20)
+            .populate("folder"),
+          Folder.find({ user: userId }).sort({ createdAt: -1 }).limit(20),
+        ]).then(([files, folders]) => {
+          return [...files, ...folders]
+            .sort((a, b) => b.createdAt - a.createdAt)
+            .slice(0, 20);
+        }),
+      ]);
+
+    res.status(200).json({
+      success: true,
+      message: "My Dashboard",
+      data: {
+        user: {
+          _id: userId,
+          name: req.decodedUser.name,
+          profilePicture: req.decodedUser.profilePicture,
+          storageAvailable: req.decodedUser.storageAvailable,
+          storageLimit: req.decodedUser.storageLimit,
+          storageUsed: req.decodedUser.storageUsed,
+        },
+        folders: {
+          count: folders.length,
+          totalSize: folders.reduce(
+            (sum, folder) => sum + (folder.totalSize || 0),
+            0
+          ),
+        },
+        note: noteFiles[0]
+          ? {
+              count: noteFiles[0].count,
+              totalSize: noteFiles[0].totalSize,
+            }
+          : { count: 0, totalSize: 0 },
+        images: imageFiles[0]
+          ? {
+              count: imageFiles[0].count,
+              totalSize: imageFiles[0].totalSize,
+            }
+          : { count: 0, totalSize: 0 },
+        pdf: pdfFiles[0]
+          ? {
+              count: pdfFiles[0].count,
+              totalSize: pdfFiles[0].totalSize,
+            }
+          : { count: 0, totalSize: 0 },
+        videos: videoFiles[0]
+          ? {
+              count: videoFiles[0].count,
+              totalSize: videoFiles[0].totalSize,
+            }
+          : { count: 0, totalSize: 0 },
+        recent: recentItems,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
       error: error.message,
     });
   }

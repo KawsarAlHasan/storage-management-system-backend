@@ -1,5 +1,5 @@
-const e = require("express");
 const Folder = require("../models/folder.model");
+const File = require("../models/file.model");
 
 // Create a new folder
 exports.createFolder = async (req, res) => {
@@ -76,7 +76,8 @@ exports.getAllFolders = async (req, res) => {
 exports.getFolderById = async (req, res) => {
   try {
     const { id } = req.params;
-    const folder = await Folder.findById(id);
+
+    const folder = await Folder.findById(id).lean();
 
     if (!folder) {
       return res.status(404).json({
@@ -85,10 +86,17 @@ exports.getFolderById = async (req, res) => {
       });
     }
 
+    const files = await File.find({ folder: id })
+      .sort({ createdAt: -1 })
+      .lean();
+
     res.status(200).json({
       success: true,
       message: "Get folder by ID successfully",
-      data: folder,
+      data: {
+        ...folder,
+        files: files,
+      },
     });
   } catch (error) {
     res.status(500).json({

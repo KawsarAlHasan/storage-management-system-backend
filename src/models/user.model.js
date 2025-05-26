@@ -20,6 +20,7 @@ const UserSchema = mongoose.Schema(
       minlength: [6, "Password must be at least 6 characters"],
     },
     profilePicture: String,
+    storageAvailable: { type: Number, default: 15 * 1024 * 1024 * 1024 },
     storageUsed: { type: Number, default: 0 },
     storageLimit: { type: Number, default: 15 * 1024 * 1024 * 1024 },
     status: {
